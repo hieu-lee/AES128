@@ -7,7 +7,7 @@ namespace AES128;
 public class TestFunctions
 {
     Random rng = new Random();
-    byte[] P = new byte[100000000];
+    byte[] P = new byte[8000000];
     byte[] K = new byte[16];
     static bool ByteArrayEqual(byte[] a, byte[] b)
     {
@@ -26,11 +26,19 @@ public class TestFunctions
     }
 
     [Benchmark]
-    public void RunEncryption()
+    public void RunEncryptionSync()
     {
         rng.NextBytes(P);
         rng.NextBytes(K);
         _ = aes128algorithm.AES128E(P, K);
+    }
+
+    [Benchmark]
+    public void RunEncryptionParallel()
+    {
+        rng.NextBytes(P);
+        rng.NextBytes(K);
+        _ = aes128algorithm.AES128EP(P, K);
     }
 
     public static void BenchmarkAes128()

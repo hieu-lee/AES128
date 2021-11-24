@@ -228,6 +228,80 @@ class aes128algorithm
         return res;
     }
 
+    // AES128 encryption function run in parallel
+    public static TupleBytes AES128EP(byte[] input, byte[] key)
+    {
+        var BlockLen = input.Length >> 4;
+        var LastBlockLen = input.Length & 0xf;
+        var KeyLength = (LastBlockLen == 0) ? (BlockLen << 4) : ((BlockLen + 1) << 4);
+        var output = new byte[KeyLength];
+        var FinalKeys = new byte[KeyLength];
+        Parallel.For(0, BlockLen, j =>
+        {
+            var index = j << 4;
+            var state = new byte[16];
+            var RoundKey = new byte[16];
+            for (int i = 0; i < 16; i++)
+            {
+                RoundKey[i] = key[i];
+                state[i] = input[index + i];
+            }
+            AddRoundKey(state, RoundKey);
+
+            for (var round = 1; round < 10; round++)
+            {
+                RoundKey = KeyExpansion(RoundKey, round);
+                SubAndShiftRows(state);
+                MixColumns(state);
+                AddRoundKey(state, RoundKey);
+            }
+            RoundKey = KeyExpansion(RoundKey, 10);
+            SubAndShiftRows(state);
+            AddRoundKey(state, RoundKey);
+            for (int i = 0; i < 16; i++)
+            {
+                var c = index + i;
+                output[c] = state[i];
+                FinalKeys[c] = RoundKey[i];
+            }
+        });
+        if (LastBlockLen > 0)
+        {
+            var index = BlockLen << 4;
+            var state = new byte[16];
+            var RoundKey = new byte[16];
+            for (int i = 0; i < LastBlockLen; i++)
+            {
+                var c = index + i;
+                RoundKey[i] = key[i];
+                state[i] = input[c];
+            }
+            for (int i = LastBlockLen; i < 16; i++)
+            {
+                RoundKey[i] = key[i];
+            }
+            AddRoundKey(state, RoundKey);
+
+            for (var round = 1; round < 10; round++)
+            {
+                RoundKey = KeyExpansion(RoundKey, round);
+                SubAndShiftRows(state);
+                MixColumns(state);
+                AddRoundKey(state, RoundKey);
+            }
+            RoundKey = KeyExpansion(RoundKey, 10);
+            SubAndShiftRows(state);
+            AddRoundKey(state, RoundKey);
+            for (int i = 0; i < 16; i++)
+            {
+                var c = index + i;
+                output[c] = state[i];
+                FinalKeys[c] = RoundKey[i];
+            }
+        }
+        return new(output, FinalKeys);
+    }
+
     // AES128 encryption function 
     public static TupleBytes AES128E(byte[] input, byte[] key)
     {
@@ -300,6 +374,104 @@ class aes128algorithm
             }
         }
         return new(output, FinalKeys);
+    }
+
+    // Efficient encryption function
+    public static TupleBytes AES128Encrypt(byte[] input, byte[] key)
+    {
+        return (input.Length >= 250) ? AES128EP(input, key) : AES128E(input, key);
+    }
+
+    // AES128 decryption function run in parallel
+    public static TupleBytes AES128DP(byte[] CipherText, byte[] key, int PlaintextLength)
+    {
+        var BlockLen = PlaintextLength >> 4;
+        var LastBlockLen = PlaintextLength & 0xf;
+        var Plaintext = new byte[PlaintextLength];
+        var FirstRoundKey = new byte[16];
+        var GetKey = false;
+        Parallel.For(0, BlockLen, j =>
+        {
+            var index = j << 4;
+            var state = new byte[16];
+            var RoundKey = new byte[16];
+            for (int i = 0; i < 16; i++)
+            {
+                var c = index + i;
+                RoundKey[i] = key[c];
+                state[i] = CipherText[c];
+            }
+            AddRoundKey(state, RoundKey);
+            InvSubAndShiftRows(state);
+            RoundKey = InvKeyExpansion(RoundKey, 1);
+            for (var round = 2; round < 11; round++)
+            {
+                AddRoundKey(state, RoundKey);
+                InvMixColumns(state);
+                InvSubAndShiftRows(state);
+                RoundKey = InvKeyExpansion(RoundKey, round);
+            }
+            AddRoundKey(state, RoundKey);
+            if (!GetKey)
+            {
+                for (int i = 0; i < 16; i++)
+                {
+                    Plaintext[index + i] = state[i];
+                    FirstRoundKey[i] = RoundKey[i];
+                }
+                GetKey = true;
+            }
+            else
+            {
+                for (int i = 0; i < 16; i++)
+                {
+                    Plaintext[index + i] = state[i];
+                }
+            }
+        });
+        if (LastBlockLen > 0)
+        {
+            var index = BlockLen << 4;
+            var state = new byte[16];
+            var RoundKey = new byte[16];
+            for (int i = 0; i < 16; i++)
+            {
+                var c = index + i;
+                RoundKey[i] = key[c];
+                state[i] = CipherText[c];
+            }
+            AddRoundKey(state, RoundKey);
+            InvSubAndShiftRows(state);
+            RoundKey = InvKeyExpansion(RoundKey, 1);
+            for (var round = 2; round < 11; round++)
+            {
+                AddRoundKey(state, RoundKey);
+                InvMixColumns(state);
+                InvSubAndShiftRows(state);
+                RoundKey = InvKeyExpansion(RoundKey, round);
+            }
+            AddRoundKey(state, RoundKey);
+            if (!GetKey)
+            {
+                for (int i = 0; i < LastBlockLen; i++)
+                {
+                    Plaintext[index + i] = state[i];
+                    FirstRoundKey[i] = RoundKey[i];
+                }
+                for (int i = LastBlockLen; i < 16; i++)
+                {
+                    FirstRoundKey[i] = RoundKey[i];
+                }
+            }
+            else
+            {
+                for (int i = 0; i < LastBlockLen; i++)
+                {
+                    Plaintext[index + i] = state[i];
+                }
+            }
+        }
+        return new(Plaintext, FirstRoundKey);
     }
 
     // AES128 decryption function
@@ -392,6 +564,12 @@ class aes128algorithm
             }
         }
         return new(Plaintext, FirstRoundKey);
+    }
+
+    // Efficient decryption function
+    public static TupleBytes AES128Decrypt(byte[] CipherText, byte[] key, int PlaintextLength)
+    {
+        return (CipherText.Length >= 250) ? AES128DP(CipherText, key, PlaintextLength) : AES128D(CipherText, key, PlaintextLength);
     }
 
     static void PrintMatrix(byte[,] matrix)
