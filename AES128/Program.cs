@@ -4,6 +4,7 @@ public class Program
 {
     static void Main(string[] args)
     {
-        TestFunctions.BenchmarkAes128();
+        TestFunctions.RunDemo();
+        // TestFunctions.BenchmarkAes128();
     }
 }
