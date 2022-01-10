@@ -179,9 +179,11 @@ unsafe class aes128algorithm
     static void InvKeyExpansion(byte *RoundKey, int round)
     {
         var res = stackalloc byte[16];
+        var ptr = res + 4;
         for (int i = 4; i < 16; i++)
         {
-            res[i] = (byte)(RoundKey[i] ^ RoundKey[i - 4]);
+            *ptr = (byte)(RoundKey[i] ^ RoundKey[i - 4]);
+            ptr++;
         }
         var temp = stackalloc byte[4]
         {
@@ -190,11 +192,15 @@ unsafe class aes128algorithm
             SBox[res[15]],
             SBox[res[12]]
         };
+        ptr = res;
         for (int j = 0; j < 4; j++)
         {
-            res[j] = (byte)(RoundKey[j] ^ temp[j]);
+            *ptr = (byte)(*RoundKey ^ *temp);
+            RoundKey++;
+            ptr++;
+            temp++;
         }
-        res[0] ^= RCon[10 - round];
+        *res ^= RCon[10 - round];
         RoundKey = res;
     }
 
@@ -287,8 +293,10 @@ unsafe class aes128algorithm
         {
             for (int i = 0; i < 16; i++)
             {
-                Plaintext[index + i] = state[i];
-                FirstRoundKey[i] = RoundKey[i];
+                Plaintext[index + i] = *state;
+                FirstRoundKey[i] = *RoundKey;
+                state++;
+                RoundKey++;
             }
             GetKey = true;
         }
@@ -296,7 +304,8 @@ unsafe class aes128algorithm
         {
             for (int i = 0; i < 16; i++)
             {
-                Plaintext[index + i] = state[i];
+                Plaintext[index + i] = *state;
+                state++;
             }
         }
     }
@@ -325,25 +334,29 @@ unsafe class aes128algorithm
         {
             for (int i = 0; i < LastBlockLen; i++)
             {
-                Plaintext[index + i] = state[i];
-                FirstRoundKey[i] = RoundKey[i];
+                Plaintext[index + i] = *state;
+                FirstRoundKey[i] = *RoundKey;
+                state++;
+                RoundKey++;
             }
             for (int i = LastBlockLen; i < 16; i++)
             {
-                FirstRoundKey[i] = RoundKey[i];
+                FirstRoundKey[i] = *RoundKey;
+                RoundKey++;
             }
         }
         else
         {
             for (int i = 0; i < LastBlockLen; i++)
             {
-                Plaintext[index + i] = state[i];
+                Plaintext[index + i] = *state;
+                state++;
             }
         }
     }
 
     // AES128 encryption function run in parallel
-    public static TupleBytes AES128EP(byte[] input, byte[] key)
+    public static (byte[], byte[]) AES128EP(byte[] input, byte[] key)
     {
         var BlockLen = input.Length >> 4;
         var LastBlockLen = input.Length & 0xf;
@@ -358,11 +371,11 @@ unsafe class aes128algorithm
         {
             LastRoundEncrypt(BlockLen, LastBlockLen, key, input, output, FinalKeys);
         }
-        return new(output, FinalKeys);
+        return (output, FinalKeys);
     }
 
     // AES128 encryption function 
-    public static TupleBytes AES128E(byte[] input, byte[] key)
+    public static (byte[], byte[]) AES128E(byte[] input, byte[] key)
     {
         var BlockLen = input.Length >> 4;
         var LastBlockLen = input.Length & 0xf;
@@ -379,17 +392,17 @@ unsafe class aes128algorithm
         {
             LastRoundEncrypt(BlockLen, LastBlockLen, key, input, output, FinalKeys);
         }
-        return new(output, FinalKeys);
+        return (output, FinalKeys);
     }
 
     // Efficient encryption function
-    public static TupleBytes AES128Encrypt(byte[] input, byte[] key)
+    public static (byte[], byte[]) AES128Encrypt(byte[] input, byte[] key)
     {
         return (input.Length >= 250) ? AES128EP(input, key) : AES128E(input, key);
     }
 
     // AES128 decryption function run in parallel
-    public static TupleBytes AES128DP(byte[] CipherText, byte[] key, int PlaintextLength)
+    public static (byte[], byte[]) AES128DP(byte[] CipherText, byte[] key, int PlaintextLength)
     {
         var BlockLen = PlaintextLength >> 4;
         var LastBlockLen = PlaintextLength & 0xf;
@@ -404,11 +417,11 @@ unsafe class aes128algorithm
         {
             LastRoundDecrypt(BlockLen, LastBlockLen, key, CipherText, Plaintext, FirstRoundKey, ref GetKey);
         }
-        return new(Plaintext, FirstRoundKey);
+        return (Plaintext, FirstRoundKey);
     }
 
     // AES128 decryption function
-    public static TupleBytes AES128D(byte[] CipherText, byte[] key, int PlaintextLength)
+    public static (byte[], byte[]) AES128D(byte[] CipherText, byte[] key, int PlaintextLength)
     {
         var BlockLen = PlaintextLength >> 4;
         var LastBlockLen = PlaintextLength & 0xf;
@@ -425,11 +438,11 @@ unsafe class aes128algorithm
         {
             LastRoundDecrypt(BlockLen, LastBlockLen, key, CipherText, Plaintext, FirstRoundKey, ref GetKey);
         }
-        return new(Plaintext, FirstRoundKey);
+        return (Plaintext, FirstRoundKey);
     }
 
     // Efficient decryption function
-    public static TupleBytes AES128Decrypt(byte[] CipherText, byte[] key, int PlaintextLength)
+    public static (byte[], byte[]) AES128Decrypt(byte[] CipherText, byte[] key, int PlaintextLength)
     {
         return (CipherText.Length >= 250) ? AES128DP(CipherText, key, PlaintextLength) : AES128D(CipherText, key, PlaintextLength);
     }
