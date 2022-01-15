@@ -46,6 +46,16 @@ unsafe class aes128algorithm
         0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D,
     };
 
+    static void U128Copy(byte* src, byte* dst)
+    {
+        var srcLong = (ulong*)src;
+        var dstLong = (ulong*)dst;
+        *dstLong = *srcLong;
+        dstLong++;
+        srcLong++;
+        *dstLong = *srcLong;
+    }
+
     static readonly byte[] RCon = new byte[10]
     {
         0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36
@@ -66,13 +76,7 @@ unsafe class aes128algorithm
             SBox[state[8]], SBox[state[13]], SBox[state[2]], SBox[state[7]],
             SBox[state[12]], SBox[state[1]], SBox[state[6]], SBox[state[11]]
         };
-        while (i < 16)
-        {
-            *state = *temp;
-            state++;
-            temp++;
-            i++;
-        }
+        U128Copy(temp, state);
     }
 
     static void InvSubAndShiftRows(byte *state)
@@ -85,13 +89,7 @@ unsafe class aes128algorithm
             InvSBox[state[8]], InvSBox[state[5]], InvSBox[state[2]], InvSBox[state[15]],
             InvSBox[state[12]], InvSBox[state[9]], InvSBox[state[6]], InvSBox[state[3]]
         };
-        while (i < 16)
-        {
-            *state = *temp;
-            state++;
-            temp++;
-            i++;
-        }
+        U128Copy(temp, state);
     }
 
     static void MixColumns(byte *state)
@@ -135,55 +133,48 @@ unsafe class aes128algorithm
 
     static void AddRoundKey(byte *state, byte *RoundKey)
     {
-        var c = 0;
-        while (c < 16)
-        {
-            *state ^= *RoundKey;
-            state++;
-            RoundKey++;
-            c++;
-        }
+        var stateLong = (ulong*)state;
+        var RoundKeyLong = (ulong*)RoundKey;
+        *stateLong ^= *RoundKeyLong;
+        stateLong++;
+        RoundKeyLong++;
+        *stateLong ^= *RoundKeyLong;
     }
 
     static void KeyExpansion(byte *RoundKey, int round)
     {
         var res = stackalloc byte[16];
+        var RoundKeyCopy = RoundKey;
         var temp = stackalloc byte[4]
         {
-            SBox[*(RoundKey + 13)],
-            SBox[*(RoundKey + 14)],
-            SBox[*(RoundKey + 15)],
-            SBox[*(RoundKey + 12)]
+            SBox[RoundKey[13]],
+            SBox[RoundKey[14]],
+            SBox[RoundKey[15]],
+            SBox[RoundKey[12]]
         };
-        int i = 0;
-        var ptr = res;
-        while (i < 4)
-        {
-            *ptr = (byte)(*temp ^ *RoundKey);
-            ptr++;
-            temp++;
-            RoundKey++;
-            i++;
-        }
+        *(uint*)res = *(uint*)temp ^ *(uint*)RoundKey;
+        var ptr = res + 4;
+        RoundKey += 4;
         *res ^= RCon[round - 1];
-        while (i < 16)
+        for (int i = 4; i < 16; i++)
         {
             *ptr = (byte)(*(ptr - 4) ^ *RoundKey);
             ptr++;
             RoundKey++;
-            i++;
         }
-        RoundKey = res;
+        U128Copy(res, RoundKeyCopy);
     }
 
     static void InvKeyExpansion(byte *RoundKey, int round)
     {
         var res = stackalloc byte[16];
         var ptr = res + 4;
+        var RoundKeyCopy = RoundKey;
         for (int i = 4; i < 16; i++)
         {
-            *ptr = (byte)(RoundKey[i] ^ RoundKey[i - 4]);
+            *ptr = (byte)(*RoundKey ^ *(RoundKey + 4));
             ptr++;
+            RoundKey++;
         }
         var temp = stackalloc byte[4]
         {
@@ -192,16 +183,9 @@ unsafe class aes128algorithm
             SBox[res[15]],
             SBox[res[12]]
         };
-        ptr = res;
-        for (int j = 0; j < 4; j++)
-        {
-            *ptr = (byte)(*RoundKey ^ *temp);
-            RoundKey++;
-            ptr++;
-            temp++;
-        }
-        *res ^= RCon[10 - round];
-        RoundKey = res;
+        *(uint*)res = *(uint*)temp ^ *(uint*)RoundKeyCopy;
+        res[0] ^= RCon[10 - round];
+        U128Copy(res, RoundKeyCopy);
     }
 
     static void RoundEncrypt(int index, byte[] key, byte[] input, byte[] output, byte[] FinalKeys)
@@ -323,11 +307,13 @@ unsafe class aes128algorithm
         }
         AddRoundKey(state, RoundKey);
         InvSubAndShiftRows(state);
+        InvKeyExpansion(RoundKey, 1);
         for (var round = 2; round < 11; round++)
         {
             AddRoundKey(state, RoundKey);
             InvMixColumns(state);
             InvSubAndShiftRows(state);
+            InvKeyExpansion(RoundKey, round);
         }
         AddRoundKey(state, RoundKey);
         if (!GetKey)
